@@ -119,4 +119,4 @@ market_info = None
 def setup_exchange():
     global exchange, market_info
     try:
-        if not API_KEY or API_KEY == 'YOUR_BINANCE_API_KEY_HERE_Fส
+        if not API_KEY or API_KEY == 'YOUR_BINANCE_API_KEY_HERE_F

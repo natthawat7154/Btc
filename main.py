@@ -366,7 +366,7 @@ def pnl_usdt(side: str, entry: float, exit_price: float, qty: float) -> float:
 def main():
     global last_snapshot
     setup_exchange()
-    send_telegram("🤖 เริ่มบอท: SMC H1→M5 + Fibo + POC)
+    send_telegram("🤖 เริ่มบอท: SMC H1→M5 + Fibo + POC")
 
     while True:
         try:

@@ -314,6 +314,44 @@ def build_fibo2(side: str, h1_fibo0: float, m5_swing_in_zone: float):
             'ext161.8': top+1.618*diff
         }
 
+def find_recent_m5_swing_in_zone(fibo, side: str):
+    """
+    หา M5 swing ล่าสุดที่อยู่ใน Fibo zone (33–78.6)
+    ใช้เป็นจุด 0 ของ Fibo2
+    """
+    if not fibo:
+        return None
+
+    try:
+        o_m5 = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME_M5, limit=200)
+    except Exception as e:
+        log.warning(f"find_recent_m5_swing_in_zone fetch error: {e}")
+        return None
+
+    swings = find_swings_from_ohlcv(
+        o_m5,
+        left=M5_SW_LEFT,
+        right=M5_SW_RIGHT
+    )
+
+    if not swings:
+        return None
+
+    zone_low = min(fibo['33'], fibo['78.6'])
+    zone_high = max(fibo['33'], fibo['78.6'])
+
+    # ไล่จาก swing ล่าสุดย้อนกลับไป
+    for stype, idx, ts, price in reversed(swings):
+        if zone_low <= price <= zone_high:
+            # long ใช้ swing low, short ใช้ swing high
+            if side == 'long' and stype == 'low':
+                return price
+            if side == 'short' and stype == 'high':
+                return price
+
+    # ไม่เจอ swing ที่เข้าเงื่อนไข
+    return None
+
 # ================== EMA FILTER (H1 close only) ==================
 def h1_close_and_ema():
     o = exchange.fetch_ohlcv(SYMBOL, timeframe=TIMEFRAME_H1, limit=EMA_FILTER_PERIOD+5)

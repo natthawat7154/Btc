@@ -144,18 +144,26 @@ def fetch_position():
 
 def open_market(side: str):
     p = price_now()
-    if p is None: return None
+    if p is None:
+        return None
+
     qty = calc_qty_by_margin(p)
-   	if qty<=0:
-        send_telegram("⛔ Margin ไม่พอเปิดออเดอร์"); return None
-    side_ccxt = 'buy' if side=='long' else 'sell'
+    if qty <= 0:
+        send_telegram("⛔ Margin ไม่พอเปิดออเดอร์")
+        return None
+
+    side_ccxt = 'buy' if side == 'long' else 'sell'
     try:
         exchange.create_market_order(SYMBOL, side_ccxt, qty)
         time.sleep(1)
+
         pos = fetch_position()
-        if pos and pos['side']==side:
+        if pos and pos['side'] == side:
             return pos
-        send_telegram("⚠ เปิดสำเร็จแต่ยืนยันไม่เจอ position"); return pos
+
+        send_telegram("⚠ เปิดสำเร็จแต่ยืนยันไม่เจอ position")
+        return pos
+
     except Exception as e:
         send_telegram(f"⛔ เปิดออเดอร์ล้มเหลว: {e}")
         return None

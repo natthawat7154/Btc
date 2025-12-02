@@ -146,7 +146,7 @@ def open_market(side: str):
     p = price_now()
     if p is None: return None
     qty = calc_qty_by_margin(p)
-    if qty<=0:
+   	if qty<=0:
         send_telegram("⛔ Margin ไม่พอเปิดออเดอร์"); return None
     side_ccxt = 'buy' if side=='long' else 'sell'
     try:
@@ -242,6 +242,20 @@ def m5_choch_direction():
     st = detect_bos_choch_from_swings(o, sw)
     if not st: return None
     return st[-1]['trend']  # 'up' or 'down'
+
+# ✅ FIX: helper เลือก SL ให้ไม่ผิดฝั่ง
+def pick_sl_correct_side(side: str, entry: float, candidates: list[float]) -> float|None:
+    """
+    long  -> เอา SL ที่ < entry (ใกล้ entry ที่สุด)
+    short -> เอา SL ที่ > entry (ใกล้ entry ที่สุด)
+    """
+    vals = []
+    if side == 'long':
+        vals = [x for x in candidates if x < entry]
+        return max(vals) if vals else None
+    else:
+        vals = [x for x in candidates if x > entry]
+        return min(vals) if vals else None
 
 # ================== FIBO / POC ==================
 def pick_h1_swing_for_signal(ohlcv_h1, direction: str):
@@ -458,7 +472,6 @@ def main():
                 want = 'short' if state['h1_dir']=='down' else 'long'
                 # EMA filter (H1 close only)
                 if not ema_filter_allows(want):
-                    # ไม่อนุญาตตาม EMA filter
                     time.sleep(LOOP_SEC)
                 else:
                     dir_back = m5_choch_direction()
@@ -476,29 +489,34 @@ def main():
                         swing_in_zone = find_recent_m5_swing_in_zone(state['fibo'], want)
                         state['m5_pre_entry_swing'] = swing_in_zone
 
-                        # กำหนด SL1: Fibo80 เป็นค่า default; ถ้า POC อยู่ในโซน 0–78.6 → ใช้ POC เป็น SL1
                         fibo = state['fibo']; poc = state.get('poc_h1')
-                        sl1 = fibo['80']
-                        # POC valid zone check
+                        # ใช้ logic เดิม: POC ต้องอยู่ในโซน 0–78.6 ถึงจะเป็น candidate
+                        sl_candidates = []
                         z_lo=min(fibo['0'], fibo['78.6']); z_hi=max(fibo['0'], fibo['78.6'])
+                        sl_candidates.append(fibo['80'])
                         if poc is not None and z_lo <= poc <= z_hi:
-                            sl1 = poc  # ใช้ POC เป็น SL1 เมื่ออยู่ในโซน 0–78.6
+                            sl_candidates.append(poc)
 
-                        # TP1 = Fibo0 (ตามที่ยืนยันล่าสุด)
+                        # TP1 = Fibo0
                         tp1 = fibo['0']; tp1_via='FIBO0'
                         state['tp1_level']=tp1; state['tp1_via']=tp1_via
 
                         pos = open_market(want)
                         if pos:
-                            # รวมแจ้งเตือนครั้งเดียว
+                            entry = pos['entry']
+                            # ✅ FIX: เลือก SL ให้ไม่ผิดฝั่ง
+                            sl1 = pick_sl_correct_side(want, entry, sl_candidates)
+                            if sl1 is None:
+                                sl1 = fibo['80']
+                            sl_src = "POC" if (poc is not None and abs(sl1-poc) < 1e-8) else "Fibo 80"
+
                             msg = (f"✅ เปิดโพซิชัน <b>{want.upper()}</b>\n"
                                    f"Entry: <code>{pos['entry']:.2f}</code> | Size: <code>{pos['contracts']:.6f}</code>\n"
-                                   f"🛡 SL1: <code>{sl1:.2f}</code> ({'POC' if sl1==poc else 'Fibo 80'})\n"
+                                   f"🛡 SL1: <code>{sl1:.2f}</code> ({sl_src})\n"
                                    f"🎯 TP1: <code>{tp1:.2f}</code> ({tp1_via}) | POC: <code>{(poc and round(poc,2)) if poc else '—'}</code>")
                             send_telegram(msg, tag="entry:open")
                             state['phase']='IN_POSITION'
                             state['tp1_done']=False; state['fibo2']=None; state['sl2']=None
-                            # (ตั้ง stop-order SL1? ที่นี่ให้เฝ้าด้วยบอทเพื่อตามเงื่อนไข dynamic)
                         else:
                             send_telegram("⛔ เปิดไม่สำเร็จ", tag="entry:fail")
 
@@ -509,26 +527,30 @@ def main():
                 side = pos_live['side']; qty_all = pos_live['contracts']; entry = pos_live['entry']
                 fibo = state['fibo']; poc = state.get('poc_h1')
                 tp1  = state.get('tp1_level')
-                sl1  = fibo['80'] if fibo else None
-                if poc is not None and fibo:
-                    z_lo=min(fibo['0'], fibo['78.6']); z_hi=max(fibo['0'], fibo['78.6'])
-                    if z_lo <= poc <= z_hi:
-                        sl1 = poc  # POC override
+
+                # ✅ FIX: คำนวณ SL1 ด้วย logic เดียวกับตอนเข้าไม้
+                sl1 = None
+                if fibo:
+                    sl_candidates = [fibo['80']]
+                    if poc is not None:
+                        z_lo=min(fibo['0'], fibo['78.6']); z_hi=max(fibo['0'], fibo['78.6'])
+                        if z_lo <= poc <= z_hi:
+                            sl_candidates.append(poc)
+                    sl1 = pick_sl_correct_side(side, entry, sl_candidates)
+                    if sl1 is None:
+                        sl1 = fibo['80']
 
                 # SL1 hit?
-                if sl1:
+                if sl1 is not None:
                     sl1_hit = (last >= sl1) if side=='short' else (last <= sl1)
                     if sl1_hit and not state.get('tp1_done'):
-                        # ปิดทั้งหมด (SL1)
                         try:
                             side_close='buy' if side=='short' else 'sell'
                             exchange.create_market_order(SYMBOL, side_close, qty_all, None, {'reduceOnly':True})
                         except Exception as e:
                             log.warning(f"SL1 close warn: {e}")
-                        # P/L
                         loss = pnl_usdt(side, entry, last, qty_all)
                         send_telegram(f"🛑 SL1 HIT @ <code>{last:.2f}</code>\nขาดทุน: <b>{loss:+.2f} USDT</b>", tag="sl1:done")
-                        # reset to WAIT_H1
                         state.update({'phase':'WAIT_H1','h1_dir':None,'fibo':None,'poc_h1':None,'entered_zone':False,
                                       'waiting_reenter':False,'m5_pre_entry_swing':None,'tp1_level':None,'tp1_via':None,
                                       'fibo2':None,'tp1_done':False,'sl2':None})
@@ -549,7 +571,6 @@ def main():
                         state['tp1_done']=True
                         # สร้าง Fibo2
                         h1_f0 = fibo['0']
-                        # 0 = swing M5 ในโซนก่อนเข้า
                         m5_zero = state['m5_pre_entry_swing'] if state['m5_pre_entry_swing'] is not None else last
                         state['fibo2'] = build_fibo2(side, h1_f0, m5_zero)
                         state['sl2']   = state['fibo2']['0']
@@ -558,16 +579,13 @@ def main():
                 # Fibo2 phase → TP2 / SL2
                 if state.get('tp1_done') and state.get('fibo2'):
                     f2 = state['fibo2']; sl2 = f2['0']
-                    # TP2
                     if side=='long':
                         if last >= f2['ext133'] or last >= f2['ext161.8']:
-                            # close rest
                             try:
                                 side_close='sell'
                                 exchange.create_market_order(SYMBOL, side_close, fetch_position()['contracts'], None, {'reduceOnly':True})
                             except Exception as e:
                                 log.warning(f"TP2 close warn: {e}")
-                            # P/L on remainder
                             pos_after = fetch_position()
                             qty_closed = qty_all - (pos_after['contracts'] if pos_after else 0.0)
                             gain = pnl_usdt(side, entry, last, qty_closed)
@@ -576,9 +594,7 @@ def main():
                                           'waiting_reenter':False,'m5_pre_entry_swing':None,'tp1_level':None,'tp1_via':None,
                                           'fibo2':None,'tp1_done':False,'sl2':None})
                             continue
-                        # SL2
                         if last <= sl2:
-                            # close rest quietly (no P/L shown)
                             try:
                                 side_close='sell'
                                 exchange.create_market_order(SYMBOL, side_close, fetch_position()['contracts'], None, {'reduceOnly':True})

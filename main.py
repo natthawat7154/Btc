@@ -1,3 +1,7 @@
+# main.py
+# Binance Futures – Nadaraya-Watson Envelope + MACD Confirm (TF ย่อย)
+# ปรับ: TP buffer, BE reason, BE via MACD option, EMA on/off, simplified daily report
+
 import ccxt, time, json, math, logging, os, requests
 from datetime import datetime
 
@@ -36,7 +40,7 @@ UPDATE_FRACTION = 0.50
 TP_BUFFER = 300                        # Q2: ค่านี้ปรับได้ (tp ก่อนถึง upper/lower)
 SL_DISTANCE = 2000                     # Q1: ปรับได้ (default 2000)
 USE_BREAKEVEN = True      #True,False  ยังคงมีเป็นออฟชัน (mid-based) ถ้า USE_BREAKEVEN_MACD False
-BREAKEVEN_OFFSET = 350
+BREAKEVEN_OFFSET = 250
 
 # Daily report (ครั้งเดียว/วัน)
 DAILY_REPORT_HH = 23
